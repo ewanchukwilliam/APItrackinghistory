@@ -78,17 +78,17 @@ class tickerInfo:
             'Authorization': f'Bearer {os.getenv("MARKETDATA_API_KEY")}'
         }
         params = {
-            "date": transaction_dt.strftime('%Y-%m-%d'),           # Historical date (when trade happened)
-            "from": transaction_dt.strftime('%Y-%m-%d'),            # Expiration range start
-            "to": (disclosure_dt + pd.Timedelta(days=30)).strftime('%Y-%m-%d')  # 30 days after disclosure
+            "date": transaction_dt.strftime('%Y-%m-%d'),           
+            "from": (disclosure_dt - pd.Timedelta(days=1)).strftime('%Y-%m-%d'),  # 1 day before disclosure
+            "to": (disclosure_dt + pd.Timedelta(days=1)).strftime('%Y-%m-%d') # 1 day after disclosure
         }
         response = requests.get(full_url, headers=headers, params=params)
         response_data = response.json()
         try:
             # Save options data to CSV
             options_csv_path = save_options_to_csv(self.symbol, response_data)
-            self.optionsData = options_csv_path
             print(f"Options data saved for {self.symbol} at {options_csv_path}")
+            self.optionsData = options_csv_path
         except Exception as e:
             print(f"Error saving options data for {self.symbol}: {e}")
             self.optionsData = None
