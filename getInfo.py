@@ -35,6 +35,7 @@ class tickerInfo:
         except Exception as e:
             print(self.symbol + " threw an error here")
 
+
     def getOptionsData(self):
         pass
 
@@ -64,22 +65,3 @@ if __name__ == "__main__":
             data.getPriceData()
         except Exception as e:
             print(data.symbol + " threw an error here")
-        # print(data.symbol)
-        # print(data.disclosureDate)
-        # print(data.transactionDate)
-        # print(data.firstName)
-        # print(data.lastName)
-        # print(data.office)
-        # print(data.district)
-        # print(data.owner)
-        # print(data.assetDescription)
-        # print(data.assetType)
-        # print(data.type)
-        # print(data.amount)
-        # print(data.capitalGainsOver200USD)
-        # print(data.comment)
-        # print(data.link)
-        # print(data.priceData)
-        # print(data.optionsData) 
-        
-

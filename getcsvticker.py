@@ -8,9 +8,13 @@ import yfinance as yf
 
 
 def download_to_csv(ticker: str, start: str | None, end: str | None, output: str | None):
-    # Default output filename: TICKER.csv (uppercased)
+    # Create csv directory if it doesn't exist
+    csv_dir = Path("csv")
+    csv_dir.mkdir(exist_ok=True)
+
+    # Default output filename: csv/TICKER.csv (uppercased)
     if output is None:
-        output_path = Path(f"{ticker.upper()}.csv")
+        output_path = csv_dir / f"{ticker.upper()}.csv"
     else:
         output_path = Path(output)
 
