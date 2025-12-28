@@ -24,6 +24,7 @@ class tickerCollection:
         for data in jsonData:
             listData.append(tickerInfo(data))
         return listData
+    
 
 if __name__ == "__main__":
     collection = tickerCollection()
@@ -31,6 +32,7 @@ if __name__ == "__main__":
     for data in listData:
         try:
             data.getPriceData()
+            data.getOptionsData()
         except Exception as e:
             print("threw an error down here " + str(e)+ " for ticker symbol: "+ data.symbol)
 

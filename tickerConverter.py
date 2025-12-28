@@ -11,13 +11,13 @@ import pandas as pd
 
 
 def download_to_csv(ticker: str, start: str | None, end: str | None, output: str | None):
-    # Create csv directory if it doesn't exist
-    csv_dir = Path("csv")
-    csv_dir.mkdir(exist_ok=True)
+    # Create pricing directory if it doesn't exist
+    pricing_dir = Path("pricing")
+    pricing_dir.mkdir(exist_ok=True)
 
-    # Default output filename: csv/TICKER.csv (uppercased)
+    # Default output filename: pricing/TICKER.csv (uppercased)
     if output is None:
-        output_path = csv_dir / f"{ticker.upper()}.csv"
+        output_path = pricing_dir / f"{ticker.upper()}.csv"
     else:
         output_path = Path(output)
 
@@ -73,6 +73,52 @@ def download_to_csv(ticker: str, start: str | None, end: str | None, output: str
         raise Exception(f"Error writing CSV to {output_path}: {e}")
 
     print(f"Saved {len(data)} rows to {output_path}")
+    return output_path
+
+def save_options_to_csv(ticker: str, options_data: dict, output: str | None = None):
+    """
+    Save Market Data API options chain response to CSV
+
+    Args:
+        ticker: Stock ticker symbol
+        options_data: JSON response from Market Data API
+        output: Optional output path, defaults to options/{TICKER}.csv
+
+    Returns:
+        Path to saved CSV file
+    """
+    # Create options directory if it doesn't exist
+    options_dir = Path("options")
+    options_dir.mkdir(exist_ok=True)
+
+    # Default output filename
+    if output is None:
+        output_path = options_dir / f"{ticker.upper().replace('/', '_')}.csv"
+    else:
+        output_path = Path(output)
+
+    # Check if response has error
+    if options_data.get('s') == 'error':
+        raise Exception(f"API Error: {options_data.get('errmsg', 'Unknown error')}")
+
+    # Market Data API returns data in columnar format (each key is an array)
+    # Remove metadata fields and keep only the data arrays
+    metadata_keys = ['s']  # Status field
+    data_dict = {k: v for k, v in options_data.items() if k not in metadata_keys}
+
+    # Convert columnar data to DataFrame
+    df = pd.DataFrame(data_dict)
+
+    if df.empty:
+        raise Exception(f"No options data returned for ticker '{ticker}'")
+
+    # Save as CSV
+    try:
+        df.to_csv(output_path, index=False)
+    except Exception as e:
+        raise Exception(f"Error writing CSV to {output_path}: {e}")
+
+    print(f"Saved {len(df)} option records to {output_path}")
     return output_path
 
 def main():
