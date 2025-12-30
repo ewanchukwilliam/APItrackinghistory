@@ -1,0 +1,36 @@
+# PostgreSQL data directory (mounted as volume)
+pgdata/
+
+# Python cache and virtual environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+*.egg-info/
+
+# Data directories (mounted as volumes)
+data/
+pricing/
+options/
+graphs/
+errors/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.local
+
+# Docker files
+Dockerfile
+docker-compose.yaml
+.dockerignore

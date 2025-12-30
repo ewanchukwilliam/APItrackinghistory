@@ -9,7 +9,7 @@ services:
     volumes:
       - ./pgdata:/var/lib/postgresql/data
 
-  trackingContainer:
+  trackingcontainer:
     build:
       context: .
       dockerfile: Dockerfile
@@ -22,8 +22,11 @@ services:
       - DB_HOST=${DB_HOST}
       - DB_PORT=5432
       - FMP_API_KEY=${FMP_API_KEY}
-      - MARKETDATA_API_KEY=${MARKETDATA_API_KEY} 
+      - MARKETDATA_API_KEY=${MARKETDATA_API_KEY}
     volumes:
+      # Mount source code (dev mode - code changes reflect immediately)
+      - .:/app
+      # Data directories
       - ./data:/app/data
       - ./pricing:/app/pricing
       - ./options:/app/options

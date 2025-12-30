@@ -6,8 +6,8 @@ from pathlib import Path
 import os
 import hashlib
 import json
-from dotenv import load_dotenv
-load_dotenv()
+import uuid
+
 
 
 class Database:
@@ -201,8 +201,12 @@ if __name__ == "__main__":
     print("Running main...")
     with Database() as db:
         print("Initialized DB")
-        print("Storing error in the error table")
-        db.errors.log_error("test-batch-123", "TestError", "This is a test error", {"key": "value"})
+
+        # Generate a proper UUID for batch_id
+        test_batch_id = str(uuid.uuid4())
+        print(f"Storing error in the error table (batch_id: {test_batch_id})")
+        db.errors.log_error(test_batch_id, "TestError", "This is a test error", {"key": "value"})
+
         print("Showing all errors:")
         db.errors.show_all_errors()
 
