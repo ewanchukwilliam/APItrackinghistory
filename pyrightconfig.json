@@ -1,0 +1,15 @@
+  {
+    "venvPath": ".",
+    "venv": ".venv",
+    "pythonVersion": "3.11",
+    "typeCheckingMode": "basic",
+    "reportMissingTypeStubs": false,
+    "reportUnknownMemberType": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownVariableType": false,
+    "reportUnknownParameterType": false,
+    "reportOptionalMemberAccess": "warning",
+    "reportOptionalSubscript": "warning",
+    "reportPrivateUsage": "warning",
+    "reportGeneralTypeIssues": "warning"
+  }
