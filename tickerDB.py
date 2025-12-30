@@ -19,13 +19,8 @@ class Database:
         self.db_password = os.getenv("DB_PASSWORD")
         self.db_host = os.getenv("DB_HOST")
         self.db_port = os.getenv("DB_PORT")
-        self.csv_dir = Path(os.getenv("CSV_DIR"))
-        self.graphs_dir = Path(os.getenv("GRAPHS_DIR"))
-
         self.conn = None
         self.cursor = None
-        self._tickers = None
-        self._errors = None
 
     def __enter__(self):
         self.conn = psycopg2.connect(
@@ -36,6 +31,11 @@ class Database:
             port=self.db_port
         )
         self.cursor = self.conn.cursor()
+        # initialize tables
+        self.tickers = InsiderTradingRecords(self.cursor, self.conn)
+        self.errors = ErrorRecords(self.cursor, self.conn)  
+        self.tickers.createTable()
+        self.errors.createTable()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -48,20 +48,6 @@ class Database:
                 self.conn.rollback()
             self.conn.close()
         return False
-
-    @property
-    def tickers(self):
-        """Lazy-load ticker repository"""
-        if self._tickers is None:
-            self._tickers = InsiderTradingRecords(self.cursor, self.conn)
-        return self._tickers
-
-    @property
-    def errors(self):
-        """Lazy-load error repository"""
-        if self._errors is None:
-            self._errors = ErrorRecords(self.cursor, self.conn)
-        return self._errors
 
 
 class InsiderTradingRecords:
@@ -202,3 +188,21 @@ class ErrorRecords:
             (batch_id, error_type, error_message, raw_json, stack_trace)
             VALUES (%s, %s, %s, %s, %s)
         """, (batch_id, error_type, error_msg, json.dumps(raw_data), stack_trace))
+
+    def show_all_errors(self):
+        """Show all errors in the error table"""
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_name}
+        """)
+        for row in self.cursor:
+            print(row)  # Prints each row as a tuple    
+
+if __name__ == "__main__":
+    print("Running main...")
+    with Database() as db:
+        print("Initialized DB")
+        print("Storing error in the error table")
+        db.errors.log_error("test-batch-123", "TestError", "This is a test error", {"key": "value"})
+        print("Showing all errors:")
+        db.errors.show_all_errors()
+

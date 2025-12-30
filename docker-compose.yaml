@@ -1,0 +1,33 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+
+  trackingContainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=5432
+      - FMP_API_KEY=${FMP_API_KEY}
+      - MARKETDATA_API_KEY=${MARKETDATA_API_KEY} 
+    volumes:
+      - ./data:/app/data
+      - ./pricing:/app/pricing
+      - ./options:/app/options
+      - ./graphs:/app/graphs
+      - ./errors:/app/errors
+
+
