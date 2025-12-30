@@ -35,3 +35,9 @@ export MARKETDATA_API_KEY="your_marketdata_api_key"
 - `options/` - Historical options chains (CSV)
 - `graphs/` - Price charts with transaction/disclosure dates (PNG)
 - `errors/` - API error responses (HTML)
+
+
+#TODO
+- Add a cron job to run the script every hour
+- add main script for the cron job to only only store the pricing/options data in the db
+- create some error logging state somehow. maybe a linux notification system or something. maybe an email? 
