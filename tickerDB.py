@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import time
 import psycopg2
 import os
 import hashlib
@@ -24,6 +25,7 @@ class Database:
         self.db_port = os.getenv("DB_PORT")
         self.conn = None
         self.cursor = None
+        self.initialized = False
 
     def __enter__(self):
         self.conn = psycopg2.connect(
@@ -34,11 +36,6 @@ class Database:
             port=self.db_port
         )
         self.cursor = self.conn.cursor()
-        # initialize tables
-        self.tickers = InsiderTradingRecords(self.cursor, self.conn)
-        self.errors = ErrorRecords(self.cursor, self.conn)  
-        self.pricing = InsiderTradingPricingRecords(self.cursor, self.conn)
-        self.options = InsiderTradingOptionsRecords(self.cursor, self.conn)
         TABLE_REGISTRY={
             'tickers': InsiderTradingRecords,
             'errors': ErrorRecords,
@@ -46,10 +43,12 @@ class Database:
             'options': InsiderTradingOptionsRecords,
         }
         # Auto-create from registry
-        for attr_name, table_class in TABLE_REGISTRY.items():
-            instance = table_class(self.cursor, self.conn)
-            setattr(self, attr_name, instance)
-            instance.createTable()
+        if not self.initialized:
+            for attr_name, table_class in TABLE_REGISTRY.items():
+                instance = table_class(self.cursor, self.conn)
+                setattr(self, attr_name, instance)
+                instance.createTable()
+                self.initialized=True
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -62,6 +61,27 @@ class Database:
                 self.conn.rollback()
             self.conn.close()
         return False
+
+    def _check_tables_initialized(self):
+        """CHECK if all tables are initialized"""
+        tables=self.TABLE_REGISTRY.keys()
+        for table in tables:
+            if not self._check_table_exists(table):
+                return False
+        return True
+    
+    def _check_table_exists(self, table_name):
+        """CHECK if a table exists"""
+        if self.cursor is None:
+            raise Exception("Cursor is None")
+        self.cursor.execute(f"""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'public'
+                AND table_name = %s
+            );
+        """, (table_name.lower(),))
+        return self.cursor.fetchone()[0]
 
 
 class InsiderTradingRecords:
@@ -192,25 +212,7 @@ class ErrorRecords:
             print(row)  # Prints each row as a tuple    
 
 class InsiderTradingPricingRecords:
-    """Handles all operations for the ticker table
-
-            Close_FIS   High_FIS    Low_FIS   Open_FIS  Volume_FIS
-Date                                                              
-2025-10-31  62.140404  62.229857  60.808540  61.146475     3073800
-2025-11-03  61.822346  62.060886  60.709147  61.762709     4051200
-2025-11-04  62.766579  63.094573  61.176291  62.080766     5557700
-2025-11-05  64.356865  64.605347  62.070830  63.333120     7694200
-2025-11-06  64.287285  65.599270  63.064753  64.684858     3468800
-2025-11-07  64.386681  64.883645  63.472268  63.621359     3601400
-2025-11-10  65.042679  65.211645  63.661119  64.317108     2479400
-2025-11-11  65.976959  66.116109  64.903522  65.161938     3175600
-2025-11-12  65.827881  65.986905  64.824011  65.460125     3258500
-2025-11-13  65.857697  66.046538  64.992976  65.639031     3739500
-2025-11-14  63.849957  65.967029  63.581599  65.579397     3551300
-2025-11-17  63.541840  64.486068  63.432507  63.929471     2822200
-2025-11-18  62.766579  63.800265  62.627426  63.502084     3144500
-    """
-
+    """Handles all operations for the ticker table"""
 
     def __init__(self, cursor, conn):
         self.cursor = cursor
@@ -399,21 +401,26 @@ if __name__ == "__main__":
     print("Running main...")
     with Database() as db:
         print("Initialized DB")
-
-        
         collection = tickerCollection()
         listData = collection.tickerList
+        total_time_outside_requests=0
         for data in listData:
             print(data.symbol)      
             try:
                 db.tickers.insert(data)
                 data.getPriceData()
+                interval1_start= time.time()
                 db.pricing.insert(data.priceData, data)
+                interval1_end= time.time()
                 data.getOptionsData()
+                interval2_start= time.time()
                 db.options.insert(data.optionsData, data)
+                interval2_end= time.time()
+                total_time_outside_requests=total_time_outside_requests+(interval1_end-interval1_start)+(interval2_end-interval2_start)
+
             except Exception as e:
                 print("threw an error down here " + str(e)+ " for ticker symbol: "+ data.symbol)
-            
+        print(f"Total time spent outside requests: {total_time_outside_requests}")
 
         # Generate a proper UUID for batch_id
         # test_batch_id = str(uuid.uuid4())
