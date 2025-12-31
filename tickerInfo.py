@@ -34,7 +34,6 @@ class tickerInfo:
         self.priceData=None
         self.optionsData=None
         self.isDataValid=None
-        self.hash=None
 
     def getPriceData(self):
         """get price data for ticker"""
@@ -56,11 +55,8 @@ class tickerInfo:
             data = yf.download(self.symbol, start=start_dt, end=transaction_dt, progress=False)
             # data.reset_index(inplace=True)
             self.priceData = data
-            data.columns = ["_".join(col).strip() for col in data.columns.values]
             # self.priceData = self.csv_manager.download_price_data(self.symbol, start, end, None)
             print(self.priceData)
-
-            self.hash = self.compute_hash(self)
         except Exception as e:
             print(f"Error for {self.symbol}: {e}")
             self.isDataValid=False
@@ -128,20 +124,21 @@ class tickerInfo:
             self.isDataValid=False
             self.optionsData = None
 
-    def compute_hash(self, data):
+    @property
+    def record_hash(self):
         """
         Compute SHA256 hash of core trade fields.
         Only hash fields that identify a unique trade.
         """
         hash_dict = {
-            'symbol': data.symbol,
-            'transactionDate': data.transactionDate,
-            'firstName': data.firstName,
-            'lastName': data.lastName,
-            'type': data.type,
-            'amount': data.amount,
-            'owner': data.owner,
-            'assetType': data.assetType,
+            'symbol': self.symbol,
+            'transactionDate': self.transactionDate,
+            'firstName': self.firstName,
+            'lastName': self.lastName,
+            'type': self.type,
+            'amount': self.amount,
+            'owner': self.owner,
+            'assetType': self.assetType,
         }
         # Sort keys for consistent hashing
         hash_string = json.dumps(hash_dict, sort_keys=True)

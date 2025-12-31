@@ -5,6 +5,8 @@ import os
 import hashlib
 import json
 import uuid
+import pandas as pd
+
 
 from tickerInfo import tickerInfo
 
@@ -114,7 +116,7 @@ class InsiderTradingRecords:
         Insert a single ticker record with automatic deduplication.
         If duplicate (same hash), updates last_seen_at timestamp.
         """
-        record_hash = data.hash
+        record_hash = data.record_hash
         self.cursor.execute(f"""
             INSERT INTO {self.table_name} (
                 record_hash, symbol, transactionDate, firstName, lastName, type, amount,
@@ -242,6 +244,7 @@ Date
         df: pandas DataFrame from yfinance with date index and OHLCV columns
         tickerData: the specific trade this pricing data belongs to
         """
+
         for date, row in df.iterrows():  # Iterate through each row
             self.cursor.execute(f"""  # Insert pricing data for this date
                 INSERT INTO {self.table_name}  # Insert into pricing table
