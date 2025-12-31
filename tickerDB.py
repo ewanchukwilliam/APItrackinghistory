@@ -244,24 +244,29 @@ Date
         df: pandas DataFrame from yfinance with date index and OHLCV columns
         tickerData: the specific trade this pricing data belongs to
         """
+        # Prepare all rows as a list for bulk insert
+        rows = []
+        for date, row in df.iterrows():
+            rows.append((
+                tickerData.symbol,
+                tickerData.record_hash,
+                date.strftime('%Y-%m-%d'),
+                float(row['Close']) if 'Close' in row and pd.notna(row['Close']) else None,
+                float(row['High']) if 'High' in row and pd.notna(row['High']) else None,
+                float(row['Low']) if 'Low' in row and pd.notna(row['Low']) else None,
+                float(row['Open']) if 'Open' in row and pd.notna(row['Open']) else None,
+                int(row['Volume']) if 'Volume' in row and pd.notna(row['Volume']) else None
+            ))
 
-        for date, row in df.iterrows():  # Iterate through each row
-            self.cursor.execute(f"""  # Insert pricing data for this date
-                INSERT INTO {self.table_name}  # Insert into pricing table
-                (ticker, record_hash, date, close_price, high_price, low_price, open_price, volume)  # Columns
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)  # Values
-                ON CONFLICT (record_hash, date) DO NOTHING  # Skip if already exists
-            """, (  # Parameters
-                tickerData.symbol,  # ticker
-                tickerData.record_hash,  # record_hash
-                date.strftime('%Y-%m-%d'),  # date
-                float(row['Close']) if 'Close' in row else None,  # close_price
-                float(row['High']) if 'High' in row else None,  # high_price
-                float(row['Low']) if 'Low' in row else None,  # low_price
-                float(row['Open']) if 'Open' in row else None,  # open_price
-                int(row['Volume']) if 'Volume' in row else None  # volume
-            )) 
-        return tickerData.record_hash  # Return the record_hash
+        # Bulk insert with executemany
+        self.cursor.executemany(f"""
+            INSERT INTO {self.table_name}
+            (ticker, record_hash, date, close_price, high_price, low_price, open_price, volume)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (record_hash, date) DO NOTHING
+        """, rows)
+
+        print(f"Inserted {len(rows)} price records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
 
 if __name__ == "__main__":
     print("Running main...")
