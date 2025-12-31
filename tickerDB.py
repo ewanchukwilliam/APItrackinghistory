@@ -6,6 +6,8 @@ import hashlib
 import json
 import uuid
 
+from tickerInfo import tickerInfo
+
 
 
 class Database:
@@ -107,32 +109,12 @@ class InsiderTradingRecords:
         """)
         print(f"Table {self.table_name} created successfully")
 
-    def _compute_hash(self, data):
-        """
-        Compute SHA256 hash of core trade fields.
-        Only hash fields that identify a unique trade.
-        """
-        hash_dict = {
-            'symbol': data.symbol,
-            'transactionDate': data.transactionDate,
-            'firstName': data.firstName,
-            'lastName': data.lastName,
-            'type': data.type,
-            'amount': data.amount,
-            'owner': data.owner,
-            'assetType': data.assetType,
-        }
-        # Sort keys for consistent hashing
-        hash_string = json.dumps(hash_dict, sort_keys=True)
-        return hashlib.sha256(hash_string.encode()).hexdigest()
-
     def insert(self, data, batch_id=None):
         """
         Insert a single ticker record with automatic deduplication.
         If duplicate (same hash), updates last_seen_at timestamp.
         """
-        record_hash = self._compute_hash(data)
-
+        record_hash = data.hash
         self.cursor.execute(f"""
             INSERT INTO {self.table_name} (
                 record_hash, symbol, transactionDate, firstName, lastName, type, amount,
@@ -194,6 +176,89 @@ class ErrorRecords:
         """)
         for row in self.cursor:
             print(row)  # Prints each row as a tuple    
+
+class InsiderTradingPricingRecords:
+    """Handles all operations for the ticker table
+
+            Close_FIS   High_FIS    Low_FIS   Open_FIS  Volume_FIS
+Date                                                              
+2025-10-31  62.140404  62.229857  60.808540  61.146475     3073800
+2025-11-03  61.822346  62.060886  60.709147  61.762709     4051200
+2025-11-04  62.766579  63.094573  61.176291  62.080766     5557700
+2025-11-05  64.356865  64.605347  62.070830  63.333120     7694200
+2025-11-06  64.287285  65.599270  63.064753  64.684858     3468800
+2025-11-07  64.386681  64.883645  63.472268  63.621359     3601400
+2025-11-10  65.042679  65.211645  63.661119  64.317108     2479400
+2025-11-11  65.976959  66.116109  64.903522  65.161938     3175600
+2025-11-12  65.827881  65.986905  64.824011  65.460125     3258500
+2025-11-13  65.857697  66.046538  64.992976  65.639031     3739500
+2025-11-14  63.849957  65.967029  63.581599  65.579397     3551300
+2025-11-17  63.541840  64.486068  63.432507  63.929471     2822200
+2025-11-18  62.766579  63.800265  62.627426  63.502084     3144500
+    """
+
+
+    def __init__(self, cursor, conn):
+        self.cursor = cursor
+        self.conn = conn
+        self.table_name = "InsiderTradingPricingRecords"
+
+    def createTable(self):
+        """Create ticker table if it doesn't exist"""
+        self.cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                id SERIAL PRIMARY KEY,
+                ticker VARCHAR(100),
+                record_hash VARCHAR(64) REFERENCES InsiderTradingRecords(record_hash),
+                date DATE,
+                close_price DECIMAL(10,2),
+                high_price DECIMAL(10,2),
+                low_price DECIMAL(10,2),
+                open_price DECIMAL(10,2),
+                volume BIGINT,
+                UNIQUE(record_hash, date)
+            )
+        """)
+        # Index for querying by ticker
+        self.cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_ticker
+            ON {self.table_name}(ticker)
+        """)
+        # Index for foreign key relationship
+        self.cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_record_hash
+            ON {self.table_name}(record_hash)
+        """)
+        # Composite index for time-series queries by ticker
+        self.cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_ticker_date
+            ON {self.table_name}(ticker, date)
+        """)
+        print(f"Table {self.table_name} created successfully")
+        
+    def insert(self, df: pd.DataFrame, tickerData: tickerInfo):
+        """
+        Insert pricing data for a specific trade (record_hash).
+        df: pandas DataFrame from yfinance with date index and OHLCV columns
+        tickerData: the specific trade this pricing data belongs to
+        """
+        for date, row in df.iterrows():  # Iterate through each row
+            self.cursor.execute(f"""  # Insert pricing data for this date
+                INSERT INTO {self.table_name}  # Insert into pricing table
+                (ticker, record_hash, date, close_price, high_price, low_price, open_price, volume)  # Columns
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)  # Values
+                ON CONFLICT (record_hash, date) DO NOTHING  # Skip if already exists
+            """, (  # Parameters
+                tickerData.symbol,  # ticker
+                tickerData.record_hash,  # record_hash
+                date.strftime('%Y-%m-%d'),  # date
+                float(row['Close']) if 'Close' in row else None,  # close_price
+                float(row['High']) if 'High' in row else None,  # high_price
+                float(row['Low']) if 'Low' in row else None,  # low_price
+                float(row['Open']) if 'Open' in row else None,  # open_price
+                int(row['Volume']) if 'Volume' in row else None  # volume
+            )) 
+        return tickerData.record_hash  # Return the record_hash
 
 if __name__ == "__main__":
     print("Running main...")

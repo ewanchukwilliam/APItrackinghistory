@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # documentation: libraries https://github.com/ranaroussi/yfinance
+import hashlib
 import pandas as pd
 
+import json
 import os
 import matplotlib.pyplot as plt
 import requests
+import yfinance as yf
 
 from tickerConverter import CSVDataManager
 
@@ -31,8 +34,10 @@ class tickerInfo:
         self.priceData=None
         self.optionsData=None
         self.isDataValid=None
+        self.hash=None
 
     def getPriceData(self):
+        """get price data for ticker"""
         if self.symbol is None:
             raise Exception("Symbol is None")
         if self.disclosureDate is None or self.transactionDate is None:
@@ -48,13 +53,20 @@ class tickerInfo:
         start = start_dt.strftime('%Y-%m-%d')
         end=None
         try:
-            self.priceData = self.csv_manager.download_price_data(self.symbol, start, end, None)
+            data = yf.download(self.symbol, start=start_dt, end=transaction_dt, progress=False)
+            # data.reset_index(inplace=True)
+            self.priceData = data
+            data.columns = ["_".join(col).strip() for col in data.columns.values]
+            # self.priceData = self.csv_manager.download_price_data(self.symbol, start, end, None)
+            print(self.priceData)
+
+            self.hash = self.compute_hash(self)
         except Exception as e:
             print(f"Error for {self.symbol}: {e}")
             self.isDataValid=False
 
     def generateGraphs(self, csv_data):
-        # generate png graphs for all tickers
+        """generate png graphs for all tickers""" 
         if self.symbol is None:
             raise Exception("Symbol is None")
         if self.disclosureDate is None or self.transactionDate is None:
@@ -86,6 +98,7 @@ class tickerInfo:
 
 
     def getOptionsData(self):
+        """get options data for ticker"""
         url = "https://api.marketdata.app/v1/options/chain/"
         if self.symbol is None:
             raise Exception("Symbol is None")
@@ -114,3 +127,22 @@ class tickerInfo:
             print(f"Error saving options data for {self.symbol}: {e}")
             self.isDataValid=False
             self.optionsData = None
+
+    def compute_hash(self, data):
+        """
+        Compute SHA256 hash of core trade fields.
+        Only hash fields that identify a unique trade.
+        """
+        hash_dict = {
+            'symbol': data.symbol,
+            'transactionDate': data.transactionDate,
+            'firstName': data.firstName,
+            'lastName': data.lastName,
+            'type': data.type,
+            'amount': data.amount,
+            'owner': data.owner,
+            'assetType': data.assetType,
+        }
+        # Sort keys for consistent hashing
+        hash_string = json.dumps(hash_dict, sort_keys=True)
+        return hashlib.sha256(hash_string.encode()).hexdigest()
