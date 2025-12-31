@@ -400,23 +400,19 @@ if __name__ == "__main__":
     with Database() as db:
         print("Initialized DB")
 
-        # Generate a proper UUID for batch_id
-        test_batch_id = str(uuid.uuid4())
-        # store a trade instance
         collection = tickerCollection()
         listData = collection.tickerList
         data1 = listData[0]
         db.tickers.insert(data1)
-        # data1.getPriceData()
-        # db.pricing.insert(data1.priceData, data1)
+        data1.getPriceData()
+        db.pricing.insert(data1.priceData, data1)
         data1.getOptionsData()
-        # for col in data1.optionsData.columns:
-        #     print(f"{col}: {data1.optionsData[col].dtype}")
         db.options.insert(data1.optionsData, data1)
-
-        # db.options.insert(data1.optionsData, data1)
         
 
+        # Generate a proper UUID for batch_id
+        # test_batch_id = str(uuid.uuid4())
+        # store a trade instance
         # print(f"Storing error in the error table (batch_id: {test_batch_id})")
         # db.errors.log_error(test_batch_id, "TestError", "This is a test error", {"key": "value"})
         #
