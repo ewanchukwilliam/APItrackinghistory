@@ -5,14 +5,11 @@ This script is designed to be run periodically by cron.
 """
 
 import sys
-import time
 import uuid
 from tickerCollections import tickerCollection
 from tickerDB import Database, BatchMetrics
 
 path_to_errors = "/app/errors"
-
-
 
 def main():
     """
