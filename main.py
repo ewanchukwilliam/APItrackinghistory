@@ -4,12 +4,26 @@ Main cron job script for insider trading data pipeline.
 This script is designed to be run periodically by cron.
 """
 
+import logging
+from pathlib import Path
 import sys
 import uuid
 from tickerCollections import tickerCollection
 from tickerDB import Database, BatchMetrics
 
-path_to_errors = "/app/errors"
+LOG_DIR = Path("/app/logging")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_DIR / "cron.log"),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 def main():
     """
@@ -25,7 +39,7 @@ def main():
     # Example: logging.basicConfig(filename='/app/errors/cron.log', ...)
 
     try:
-        print("Starting insider trading data pipeline...")
+        logger.info("Starting insider trading data pipeline...")
         batch_id = str(uuid.uuid4())
 
         metrics = BatchMetrics(batch_id)
@@ -36,24 +50,23 @@ def main():
             collection = tickerCollection()
             listData = collection.tickerList
 
-        print(f"Processing {len(listData)} tickers in batch {batch_id}")
+        logger.info(f"Processing {len(listData)} tickers in batch {batch_id}")
     except Exception as e:
-        print(f"Error in fetching ticker information: {str(e)}")
+        logger.error(f"Error in fetching ticker information: {str(e)}")
         sys.exit(1)
 
     try:
         with Database() as db:
-            print("Database connection established")
+            logger.info("Database connection established")
 
             for data in listData:
-                print(f"Processing {data.symbol}")
+                logger.info(f"Processing {data.symbol}")
                 try:
                     with metrics.time_operation('db_operation_time_seconds'):
                         is_new = db.tickers.insert(data, batch_id)
 
                     if not is_new:
                         metrics.add_duplicate_trade()
-                        print(f"  → Duplicate skipped")
                         continue
 
                     with metrics.time_operation('time_to_fetch_price'):
@@ -81,10 +94,10 @@ def main():
                         had_pricing=has_pricing,
                         had_options=has_options
                     )
-                    print(f"  ✓ Processed (pricing: {has_pricing}, options: {has_options})")
+                    logger.info(f"Processed (pricing: {has_pricing}, options: {has_options})")
 
                 except Exception as e:
-                    print(f"  ✗ Error: {str(e)}")
+                    logger.error(f"Error: {str(e)}")
                     metrics.increment_error()
                     db.errors.log_error(
                         batch_id,
@@ -113,7 +126,7 @@ def main():
             print("="*60)
         sys.exit(metrics.exit_code)
     except Exception as e:
-        print(f"Fatal DB error: {str(e)}")
+        logger.error(f"Fatal DB error: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":

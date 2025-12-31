@@ -34,5 +34,6 @@ services:
       - ./options:/app/options
       - ./graphs:/app/graphs
       - ./errors:/app/errors
+      - ./logging:/app/logging
 
 

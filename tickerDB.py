@@ -155,27 +155,6 @@ class Database:
             self.conn.close()
         return False
 
-    def _check_tables_initialized(self):
-        """CHECK if all tables are initialized"""
-        tables=self.TABLE_REGISTRY.keys()
-        for table in tables:
-            if not self._check_table_exists(table):
-                return False
-        return True
-    
-    def _check_table_exists(self, table_name):
-        """CHECK if a table exists"""
-        if self.cursor is None:
-            raise Exception("Cursor is None")
-        self.cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables
-                WHERE table_schema = 'public'
-                AND table_name = %s
-            );
-        """, (table_name.lower(),))
-        return self.cursor.fetchone()[0]
-
 
 class InsiderTradingRecords:
     """Handles all operations for the ticker table"""
