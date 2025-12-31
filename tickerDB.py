@@ -259,6 +259,9 @@ class InsiderTradingPricingRecords:
         tickerData: the specific trade this pricing data belongs to
         """
         # Prepare all rows as a list for bulk insert
+        if self.get_duplicates(tickerData):
+            print(f"Duplicate PRICING hash found for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+            return  
         rows = []
         for date, row in df.iterrows():
             rows.append((
@@ -281,6 +284,16 @@ class InsiderTradingPricingRecords:
         """, rows)
 
         print(f"Inserted {len(rows)} price records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+        
+    def get_duplicates(self, tickerData):
+        """Check for duplicates in the database"""
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_name}
+            WHERE record_hash = %s
+        """, (tickerData.record_hash,))
+        if self.cursor.rowcount > 0:
+            return True
+        return False
 
 class InsiderTradingOptionsRecords:
     """Handles all operations for the ticker table"""
@@ -351,7 +364,11 @@ class InsiderTradingOptionsRecords:
         tickerData: the specific trade this Options data belongs to
         """
         # Prepare all rows as a list for bulk insert
+        if self.get_duplicates(tickerData):
+            print(f"Duplicate OPTIONS hash found for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+            return
         rows = []
+
         for _, row in df.iterrows():
             rows.append((
                 tickerData.symbol,
@@ -396,6 +413,16 @@ class InsiderTradingOptionsRecords:
         """, rows)
 
         print(f"Inserted {len(rows)} options records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+
+    def get_duplicates(self, tickerData):
+        """Check for duplicates in the database"""
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_name}
+            WHERE record_hash = %s
+        """, (tickerData.record_hash,))
+        if self.cursor.rowcount > 0:
+            return True
+        return False
 
 if __name__ == "__main__":
     print("Running main...")
