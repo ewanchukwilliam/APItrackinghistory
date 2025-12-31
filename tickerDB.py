@@ -404,6 +404,7 @@ if __name__ == "__main__":
         collection = tickerCollection()
         listData = collection.tickerList
         total_time_outside_requests=0
+        batch_id = str(uuid.uuid4())
         for data in listData:
             print(data.symbol)      
             try:
@@ -420,14 +421,5 @@ if __name__ == "__main__":
 
             except Exception as e:
                 print("threw an error down here " + str(e)+ " for ticker symbol: "+ data.symbol)
+                db.errors.log_error(batch_id, "Error inserting data for "+data.symbol, str(e), {"symbol": data.symbol})
         print(f"Total time spent outside requests: {total_time_outside_requests}")
-
-        # Generate a proper UUID for batch_id
-        # test_batch_id = str(uuid.uuid4())
-        # store a trade instance
-        # print(f"Storing error in the error table (batch_id: {test_batch_id})")
-        # db.errors.log_error(test_batch_id, "TestError", "This is a test error", {"key": "value"})
-        #
-        # print("Showing all errors:")
-        # db.errors.show_all_errors()
-        #
