@@ -400,15 +400,20 @@ if __name__ == "__main__":
     with Database() as db:
         print("Initialized DB")
 
+        
         collection = tickerCollection()
         listData = collection.tickerList
-        data1 = listData[0]
-        db.tickers.insert(data1)
-        data1.getPriceData()
-        db.pricing.insert(data1.priceData, data1)
-        data1.getOptionsData()
-        db.options.insert(data1.optionsData, data1)
-        
+        for data in listData:
+            print(data.symbol)      
+            try:
+                db.tickers.insert(data)
+                data.getPriceData()
+                db.pricing.insert(data.priceData, data)
+                data.getOptionsData()
+                db.options.insert(data.optionsData, data)
+            except Exception as e:
+                print("threw an error down here " + str(e)+ " for ticker symbol: "+ data.symbol)
+            
 
         # Generate a proper UUID for batch_id
         # test_batch_id = str(uuid.uuid4())

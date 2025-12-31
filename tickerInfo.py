@@ -58,7 +58,7 @@ class tickerInfo:
                 data.columns = data.columns.get_level_values(0)
             self.priceData = data
             # self.priceData = self.csv_manager.download_price_data(self.symbol, start, end, None)
-            print(self.priceData)
+            # print(self.priceData)
         except Exception as e:
             print(f"Error for {self.symbol}: {e}")
             self.isDataValid=False
