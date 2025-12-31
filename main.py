@@ -32,12 +32,6 @@ def main():
     and stores everything in PostgreSQL.
     """
 
-    # TODO 2: FILE-BASED LOGGING
-    # Set up logging that writes to /app/errors/cron.log
-    # Use Python's logging module with appropriate formatting
-    # Include timestamps, log levels, and meaningful messages
-    # Example: logging.basicConfig(filename='/app/errors/cron.log', ...)
-
     try:
         logger.info("Starting insider trading data pipeline...")
         batch_id = str(uuid.uuid4())
