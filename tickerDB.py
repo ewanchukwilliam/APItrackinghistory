@@ -38,9 +38,18 @@ class Database:
         self.tickers = InsiderTradingRecords(self.cursor, self.conn)
         self.errors = ErrorRecords(self.cursor, self.conn)  
         self.pricing = InsiderTradingPricingRecords(self.cursor, self.conn)
-        self.tickers.createTable()
-        self.errors.createTable()
-        self.pricing.createTable()
+        self.options = InsiderTradingOptionsRecords(self.cursor, self.conn)
+        TABLE_REGISTRY={
+            'tickers': InsiderTradingRecords,
+            'errors': ErrorRecords,
+            'pricing': InsiderTradingPricingRecords,
+            'options': InsiderTradingOptionsRecords,
+        }
+        # Auto-create from registry
+        for attr_name, table_class in TABLE_REGISTRY.items():
+            instance = table_class(self.cursor, self.conn)
+            setattr(self, attr_name, instance)
+            instance.createTable()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -271,6 +280,121 @@ Date
 
         print(f"Inserted {len(rows)} price records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
 
+class InsiderTradingOptionsRecords:
+    """Handles all operations for the ticker table"""
+
+
+    def __init__(self, cursor, conn):
+        self.cursor = cursor
+        self.conn = conn
+        self.table_name = "InsiderTradingOptionsRecords"
+
+    def createTable(self):
+        """Create options table if it doesn't exist"""
+        self.cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                id SERIAL PRIMARY KEY,
+                ticker VARCHAR(100),
+                record_hash VARCHAR(64) REFERENCES InsiderTradingRecords(record_hash),
+                s VARCHAR(50),
+                option_symbol VARCHAR(100),
+                underlying VARCHAR(50),
+                expiration BIGINT,
+                side VARCHAR(10),
+                strike DECIMAL(10,2),
+                first_traded BIGINT,
+                dte INTEGER,
+                updated BIGINT,
+                bid DECIMAL(10,2),
+                bid_size BIGINT,
+                mid DECIMAL(10,2),
+                ask DECIMAL(10,2),
+                ask_size BIGINT,
+                last DECIMAL(10,2),
+                open_interest BIGINT,
+                volume BIGINT,
+                in_the_money BOOLEAN,
+                intrinsic_value DECIMAL(10,2),
+                extrinsic_value DECIMAL(10,2),
+                underlying_price DECIMAL(10,2),
+                iv DECIMAL(10,4),
+                delta DECIMAL(10,4),
+                gamma DECIMAL(10,4),
+                theta DECIMAL(10,4),
+                vega DECIMAL(10,4),
+                UNIQUE(record_hash, option_symbol)
+            )
+        """)
+        # Index for querying by ticker
+        self.cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_ticker
+            ON {self.table_name}(ticker)
+        """)
+        # Index for foreign key relationship
+        self.cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_record_hash
+            ON {self.table_name}(record_hash)
+        """)
+        # Index for expiration date queries
+        self.cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_expiration
+            ON {self.table_name}(expiration)
+        """)
+        print(f"Table {self.table_name} created successfully")
+
+    def insert(self, df: pd.DataFrame, tickerData: tickerInfo):
+        """
+        Insert Options data for a specific trade (record_hash).
+        df: pandas DataFrame from options API
+        tickerData: the specific trade this Options data belongs to
+        """
+        # Prepare all rows as a list for bulk insert
+        rows = []
+        for _, row in df.iterrows():
+            rows.append((
+                tickerData.symbol,
+                tickerData.record_hash,
+                row.get('s'),
+                row.get('optionSymbol'),
+                row.get('underlying'),
+                int(row['expiration']) if pd.notna(row.get('expiration')) else None,
+                row.get('side'),
+                float(row['strike']) if pd.notna(row.get('strike')) else None,
+                int(row['firstTraded']) if pd.notna(row.get('firstTraded')) else None,
+                int(row['dte']) if pd.notna(row.get('dte')) else None,
+                int(row['updated']) if pd.notna(row.get('updated')) else None,
+                float(row['bid']) if pd.notna(row.get('bid')) else None,
+                int(row['bidSize']) if pd.notna(row.get('bidSize')) else None,
+                float(row['mid']) if pd.notna(row.get('mid')) else None,
+                float(row['ask']) if pd.notna(row.get('ask')) else None,
+                int(row['askSize']) if pd.notna(row.get('askSize')) else None,
+                float(row['last']) if pd.notna(row.get('last')) else None,
+                int(row['openInterest']) if pd.notna(row.get('openInterest')) else None,
+                int(row['volume']) if pd.notna(row.get('volume')) else None,
+                bool(row['inTheMoney']) if pd.notna(row.get('inTheMoney')) else None,
+                float(row['intrinsicValue']) if pd.notna(row.get('intrinsicValue')) else None,
+                float(row['extrinsicValue']) if pd.notna(row.get('extrinsicValue')) else None,
+                float(row['underlyingPrice']) if pd.notna(row.get('underlyingPrice')) else None,
+                float(row['iv']) if pd.notna(row.get('iv')) else None,
+                float(row['delta']) if pd.notna(row.get('delta')) else None,
+                float(row['gamma']) if pd.notna(row.get('gamma')) else None,
+                float(row['theta']) if pd.notna(row.get('theta')) else None,
+                float(row['vega']) if pd.notna(row.get('vega')) else None,
+            ))
+
+        # Bulk insert with executemany
+        self.cursor.executemany(f"""
+            INSERT INTO {self.table_name}
+            (ticker, record_hash, s, option_symbol, underlying, expiration, side, strike,
+             first_traded, dte, updated, bid, bid_size, mid, ask, ask_size, last,
+             open_interest, volume, in_the_money, intrinsic_value, extrinsic_value,
+             underlying_price, iv, delta, gamma, theta, vega)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (record_hash, option_symbol) DO NOTHING
+        """, rows)
+
+        print(f"Inserted {len(rows)} options records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+
 if __name__ == "__main__":
     print("Running main...")
     with Database() as db:
@@ -283,8 +407,15 @@ if __name__ == "__main__":
         listData = collection.tickerList
         data1 = listData[0]
         db.tickers.insert(data1)
-        data1.getPriceData()
-        db.pricing.insert(data1.priceData, data1)
+        # data1.getPriceData()
+        # db.pricing.insert(data1.priceData, data1)
+        data1.getOptionsData()
+        # for col in data1.optionsData.columns:
+        #     print(f"{col}: {data1.optionsData[col].dtype}")
+        db.options.insert(data1.optionsData, data1)
+
+        # db.options.insert(data1.optionsData, data1)
+        
 
         # print(f"Storing error in the error table (batch_id: {test_batch_id})")
         # db.errors.log_error(test_batch_id, "TestError", "This is a test error", {"key": "value"})

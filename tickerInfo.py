@@ -117,10 +117,12 @@ class tickerInfo:
         response = requests.get(full_url, headers=headers, params=params)
         response_data = response.json()
         try:
-            # Save options data to CSV using csv_manager
-            options_csv_path = self.csv_manager.save_options_data(self.symbol, response_data)
-            print(f"Options data saved for {self.symbol} at {options_csv_path}")
-            self.optionsData = options_csv_path
+            df = pd.DataFrame(response_data)
+            # options_csv_path = self.csv_manager.save_options_data(self.symbol, response_data)
+            # self.optionsData = options_csv_path
+            # print(f"Options data saved for {self.symbol} at {options_csv_path}")
+            self.optionsData = df
+            # return df
         except Exception as e:
             print(f"Error saving options data for {self.symbol}: {e}")
             self.isDataValid=False
