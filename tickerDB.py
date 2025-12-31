@@ -8,6 +8,7 @@ import uuid
 import pandas as pd
 
 
+from tickerCollections import tickerCollection
 from tickerInfo import tickerInfo
 
 
@@ -36,8 +37,10 @@ class Database:
         # initialize tables
         self.tickers = InsiderTradingRecords(self.cursor, self.conn)
         self.errors = ErrorRecords(self.cursor, self.conn)  
+        self.pricing = InsiderTradingPricingRecords(self.cursor, self.conn)
         self.tickers.createTable()
         self.errors.createTable()
+        self.pricing.createTable()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -275,9 +278,17 @@ if __name__ == "__main__":
 
         # Generate a proper UUID for batch_id
         test_batch_id = str(uuid.uuid4())
-        print(f"Storing error in the error table (batch_id: {test_batch_id})")
-        db.errors.log_error(test_batch_id, "TestError", "This is a test error", {"key": "value"})
+        # store a trade instance
+        collection = tickerCollection()
+        listData = collection.tickerList
+        data1 = listData[0]
+        db.tickers.insert(data1)
+        data1.getPriceData()
+        db.pricing.insert(data1.priceData, data1)
 
-        print("Showing all errors:")
-        db.errors.show_all_errors()
-
+        # print(f"Storing error in the error table (batch_id: {test_batch_id})")
+        # db.errors.log_error(test_batch_id, "TestError", "This is a test error", {"key": "value"})
+        #
+        # print("Showing all errors:")
+        # db.errors.show_all_errors()
+        #

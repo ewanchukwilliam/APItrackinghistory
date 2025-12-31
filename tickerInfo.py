@@ -53,7 +53,9 @@ class tickerInfo:
         end=None
         try:
             data = yf.download(self.symbol, start=start_dt, end=transaction_dt, progress=False)
-            # data.reset_index(inplace=True)
+            # Flatten MultiIndex columns if present (yfinance returns MultiIndex for single ticker)
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
             self.priceData = data
             # self.priceData = self.csv_manager.download_price_data(self.symbol, start, end, None)
             print(self.priceData)
