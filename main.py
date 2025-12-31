@@ -4,10 +4,14 @@ Main cron job script for insider trading data pipeline.
 This script is designed to be run periodically by cron.
 """
 
+import sys
 import time
 import uuid
 from tickerCollections import tickerCollection
-from tickerDB import Database
+from tickerDB import Database, BatchMetrics
+
+path_to_errors = "/app/errors"
+
 
 
 def main():
@@ -17,87 +21,103 @@ def main():
     and stores everything in PostgreSQL.
     """
 
-    # TODO 1: EXIT CODES
-    # Track whether any errors occurred during execution
-    # At the end of the script, exit with code 0 (success) or 1 (failure)
-    # Example: sys.exit(1 if errors_occurred else 0)
-
-
     # TODO 2: FILE-BASED LOGGING
     # Set up logging that writes to /app/errors/cron.log
     # Use Python's logging module with appropriate formatting
     # Include timestamps, log levels, and meaningful messages
     # Example: logging.basicConfig(filename='/app/errors/cron.log', ...)
 
+    try:
+        print("Starting insider trading data pipeline...")
+        batch_id = str(uuid.uuid4())
 
-    # TODO 3: HANDLE MISSING DB GRACEFULLY
-    # Wrap database connection in try/except
-    # If DB connection fails, log the error and exit with code 1
-    # Don't let the script crash silently
-    # Example: try/except around Database() context manager
+        metrics = BatchMetrics(batch_id)
+        metrics.start()
 
+        # Initialize data collection
+        with metrics.time_operation('time_to_fetch_trades'):
+            collection = tickerCollection()
+            listData = collection.tickerList
 
-    # TODO 4: TRACK EXECUTION METADATA
-    # Log: start time, end time, total records processed, success/failure counts
-    # Store this metadata somewhere (file, DB table, or just logs)
-    # Helps with monitoring and debugging
+        print(f"Processing {len(listData)} tickers in batch {batch_id}")
+    except Exception as e:
+        print(f"Error in fetching ticker information: {str(e)}")
+        sys.exit(1)
 
+    try:
+        with Database() as db:
+            print("Database connection established")
 
-    # TODO 5: IDEMPOTENT EXECUTION
-    # Your unique constraints already handle this!
-    # ON CONFLICT DO NOTHING means running twice won't duplicate data
-    # Just document that this is safe to run multiple times
+            for data in listData:
+                print(f"Processing {data.symbol}")
+                try:
+                    with metrics.time_operation('db_operation_time_seconds'):
+                        is_new = db.tickers.insert(data, batch_id)
 
+                    if not is_new:
+                        metrics.add_duplicate_trade()
+                        print(f"  → Duplicate skipped")
+                        continue
 
-    print("Starting insider trading data pipeline...")
-    batch_id = str(uuid.uuid4())
+                    with metrics.time_operation('time_to_fetch_price'):
+                        data.getPriceData()
 
-    # Initialize data collection
-    collection = tickerCollection()
-    listData = collection.tickerList
+                    has_pricing = data.priceData is not None and not data.priceData.empty
 
-    print(f"Processing {len(listData)} tickers in batch {batch_id}")
+                    if has_pricing:
+                        with metrics.time_operation('db_operation_time_seconds'):
+                            db.pricing.insert(data.priceData, data)
+                        metrics.pricing_records_inserted += len(data.priceData)
 
-    # Connect to database and process all tickers
-    with Database() as db:
-        print("Database connection established")
+                    with metrics.time_operation('time_to_fetch_options'):
+                        data.getOptionsData()
 
-        total_time_outside_requests = 0
+                    has_options = data.optionsData is not None and not data.optionsData.empty
 
-        for data in listData:
-            print(f"Processing {data.symbol}")
+                    if has_options:
+                        with metrics.time_operation('db_operation_time_seconds'):
+                            db.options.insert(data.optionsData, data)
+                        metrics.options_records_inserted += len(data.optionsData)
 
-            try:
-                # Insert main insider trading record
-                db.tickers.insert(data)
+                    metrics.add_ticker_processed(
+                        inserted=is_new,
+                        had_pricing=has_pricing,
+                        had_options=has_options
+                    )
+                    print(f"  ✓ Processed (pricing: {has_pricing}, options: {has_options})")
 
-                # Fetch and insert pricing data
-                data.getPriceData()
-                interval1_start = time.time()
-                db.pricing.insert(data.priceData, data)
-                interval1_end = time.time()
-
-                # Fetch and insert options data
-                data.getOptionsData()
-                interval2_start = time.time()
-                db.options.insert(data.optionsData, data)
-                interval2_end = time.time()
-
-                total_time_outside_requests += (interval1_end - interval1_start) + (interval2_end - interval2_start)
-
-            except Exception as e:
-                print(f"Error processing {data.symbol}: {str(e)}")
-                db.errors.log_error(
-                    batch_id,
-                    f"Error inserting data for {data.symbol}",
-                    str(e),
-                    {"symbol": data.symbol}
-                )
-
-        print(f"Total time spent on DB operations: {total_time_outside_requests:.2f}s")
-
-    print("Pipeline execution completed")
-
+                except Exception as e:
+                    print(f"  ✗ Error: {str(e)}")
+                    metrics.increment_error()
+                    db.errors.log_error(
+                        batch_id,
+                        f"Error processing {data.symbol}",
+                        str(e),
+                        {"symbol": data.symbol}
+                    )
+            success = metrics.error_count == 0
+            metrics.complete(success=success)
+            metrics.api_call_time_seconds = (
+                metrics.time_to_fetch_trades +
+                metrics.time_to_fetch_price +
+                metrics.time_to_fetch_options
+            )
+            db.logging.log_batch(batch_id, metrics)
+            print("\n" + "="*60)
+            print(f"Batch Summary ({batch_id[:8]}):")
+            print(f"  Total processed: {metrics.total_records_processed}")
+            print(f"  New records: {metrics.records_inserted}")
+            print(f"  Duplicates: {metrics.duplicated_trades}")
+            print(f"  Errors: {metrics.error_count}")
+            print(f"  Execution time: {metrics.execution_time_seconds:.2f}s")
+            print(f"    - API: {metrics.api_call_time_seconds:.2f}s")
+            print(f"    - DB: {metrics.db_operation_time_seconds:.2f}s")
+            print(f"  Status: {metrics.status}")
+            print("="*60)
+        sys.exit(metrics.exit_code)
+    except Exception as e:
+        print(f"Fatal DB error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # documentation: libraries https://github.com/ranaroussi/yfinance
 import hashlib
+from typing import TypedDict
 import pandas as pd
 
 import json
@@ -31,9 +32,9 @@ class tickerInfo:
         self.capitalGainsOver200USD=data.get('capitalGainsOver200USD')
         self.comment=data.get('comment')
         self.link=data.get('link')
-        self.priceData=None
-        self.optionsData=None
         self.isDataValid=None
+        self.priceData: pd.DataFrame | None = None
+        self.optionsData: pd.DataFrame | None = None
 
     def getPriceData(self):
         """get price data for ticker"""

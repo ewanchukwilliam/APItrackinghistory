@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
+from contextlib import contextmanager
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional
 import psycopg2
 import os
-import hashlib
 import json
 import uuid
 import pandas as pd
@@ -12,7 +15,97 @@ import pandas as pd
 from tickerCollections import tickerCollection
 from tickerInfo import tickerInfo
 
+@dataclass
+class BatchMetrics:
+    """Tracks metrics for a single cron job execution"""
+    batch_id: str
+    _start_time: Optional[datetime] = field(default=None, repr=False)
+    _end_time: Optional[datetime] = field(default=None, repr=False)
+    total_records_processed: int = 0
+    records_inserted: int = 0         
+    records_skipped: int = 0          
+    pricing_records_inserted: int = 0
+    options_records_inserted: int = 0
+    error_count: int = 0
+    tickers_with_pricing: int = 0
+    tickers_with_options: int = 0
+    duplicated_trades: int = 0
+    db_operation_time_seconds: float = 0.0
+    api_call_time_seconds: float = 0.0
+    time_to_fetch_trades: float = 0.0
+    time_to_fetch_price: float = 0.0
+    time_to_fetch_options: float = 0.0
+    status: str = 'running'
+    exit_code: int = 0
 
+    def start(self):
+        """Mark batch as started"""
+        self._start_time = datetime.now()
+
+    def complete(self, success: bool = True):
+        """Mark batch as completed"""
+        self._end_time = datetime.now()
+        self.status = 'success' if success else 'failed'
+        self.exit_code = 0 if success else 1
+
+    def increment_error(self):
+        """Increment error counter"""
+        self.error_count += 1
+
+    def add_ticker_processed(self, inserted: bool = False, skipped: bool = False,
+                            had_pricing: bool = False, had_options: bool = False):
+        """Track a processed ticker"""
+        self.total_records_processed += 1
+        if inserted:
+            self.records_inserted += 1
+        if skipped:
+            self.records_skipped += 1
+        if had_pricing:
+            self.tickers_with_pricing += 1
+        if had_options:
+            self.tickers_with_options += 1
+
+    def add_duplicate_trade(self):
+        """Track a duplicate trade"""
+        self.duplicated_trades += 1
+        self.records_skipped += 1
+
+    def add_timing(self, db_time: float = 0, api_time: float = 0):
+        """Add to cumulative timing metrics"""
+        self.db_operation_time_seconds += db_time
+        self.api_call_time_seconds += api_time
+
+    @property
+    def started_at(self) -> str:
+        """ISO formatted start time"""
+        return self._start_time.isoformat() if self._start_time else ''
+
+    @property
+    def ended_at(self) -> str:
+        """ISO formatted end time"""
+        return self._end_time.isoformat() if self._end_time else ''
+
+    @property
+    def execution_time_seconds(self) -> float:
+        """Automatically computed total execution time"""
+        if self._start_time and self._end_time:
+            return (self._end_time - self._start_time).total_seconds()
+        return 0.0
+    
+    @contextmanager
+    def time_operation(self, field_name: str):
+        """Context manager for timing operations and updating metrics"""
+        import time as time_module
+        start = time_module.perf_counter()
+        yield
+        elapsed = time_module.perf_counter() - start
+        current_value = getattr(self, field_name)
+        setattr(self, field_name, current_value + elapsed)
+
+    @property
+    def log_timestamp(self) -> str:
+        """Current timestamp for logging"""
+        return datetime.now().isoformat()
 
 class Database:
     """Manages database connection and provides access to repositories"""
@@ -36,19 +129,19 @@ class Database:
             port=self.db_port
         )
         self.cursor = self.conn.cursor()
-        TABLE_REGISTRY={
-            'tickers': InsiderTradingRecords,
-            'errors': ErrorRecords,
-            'pricing': InsiderTradingPricingRecords,
-            'options': InsiderTradingOptionsRecords,
-        }
-        # Auto-create from registry
+        # written this way to allow for lsp autocompletion of tables
         if not self.initialized:
-            for attr_name, table_class in TABLE_REGISTRY.items():
-                instance = table_class(self.cursor, self.conn)
-                setattr(self, attr_name, instance)
-                instance.createTable()
-                self.initialized=True
+            self.tickers = InsiderTradingRecords(self.cursor, self.conn)
+            self.tickers.createTable()
+            self.errors = ErrorRecords(self.cursor, self.conn)
+            self.errors.createTable()
+            self.pricing = InsiderTradingPricingRecords(self.cursor, self.conn)
+            self.pricing.createTable()
+            self.options = InsiderTradingOptionsRecords(self.cursor, self.conn)
+            self.options.createTable()
+            self.logging = logging(self.cursor, self.conn)
+            self.logging.createTable()
+            self.initialized=True
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -74,7 +167,7 @@ class Database:
         """CHECK if a table exists"""
         if self.cursor is None:
             raise Exception("Cursor is None")
-        self.cursor.execute(f"""
+        self.cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
                 WHERE table_schema = 'public'
@@ -143,12 +236,15 @@ class InsiderTradingRecords:
         """)
         print(f"Table {self.table_name} created successfully")
 
-    def insert(self, data, batch_id=None):
+    def insert(self, data, batch_id=None)->bool:
         """
         Insert a single ticker record with automatic deduplication.
         If duplicate (same hash), updates last_seen_at timestamp.
         """
         record_hash = data.record_hash
+        if self.is_duplicate(data):
+            return False
+        
         self.cursor.execute(f"""
             INSERT INTO {self.table_name} (
                 record_hash, symbol, transactionDate, firstName, lastName, type, amount,
@@ -166,6 +262,17 @@ class InsiderTradingRecords:
              data.comment, data.link, data.priceData, data.optionsData, batch_id)
         )
         print(f"Data processed for {data.symbol} (hash: {record_hash[:8]}...)")
+        return True
+
+    def is_duplicate(self, tickerData):
+        """Check for duplicates in the database"""
+        self.cursor.execute(f"""
+            SELECT * FROM {self.table_name}
+            WHERE record_hash = %s
+        """, (tickerData.record_hash,))
+        if self.cursor.rowcount > 0:
+            return True
+        return False
 
 
 class ErrorRecords:
@@ -258,10 +365,9 @@ class InsiderTradingPricingRecords:
         df: pandas DataFrame from yfinance with date index and OHLCV columns
         tickerData: the specific trade this pricing data belongs to
         """
-        # Prepare all rows as a list for bulk insert
         if self.get_duplicates(tickerData):
             print(f"Duplicate PRICING hash found for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
-            return  
+            return False
         rows = []
         for date, row in df.iterrows():
             rows.append((
@@ -282,8 +388,9 @@ class InsiderTradingPricingRecords:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (record_hash, date) DO NOTHING
         """, rows)
-
         print(f"Inserted {len(rows)} price records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+
+        return True
         
     def get_duplicates(self, tickerData):
         """Check for duplicates in the database"""
@@ -366,7 +473,7 @@ class InsiderTradingOptionsRecords:
         # Prepare all rows as a list for bulk insert
         if self.get_duplicates(tickerData):
             print(f"Duplicate OPTIONS hash found for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
-            return
+            return False
         rows = []
 
         for _, row in df.iterrows():
@@ -413,6 +520,7 @@ class InsiderTradingOptionsRecords:
         """, rows)
 
         print(f"Inserted {len(rows)} options records for {tickerData.symbol} (hash: {tickerData.record_hash[:8]}...)")
+        return True
 
     def get_duplicates(self, tickerData):
         """Check for duplicates in the database"""
@@ -423,6 +531,66 @@ class InsiderTradingOptionsRecords:
         if self.cursor.rowcount > 0:
             return True
         return False
+
+class logging:
+    def __init__(self, cursor, conn):
+        self.cursor = cursor
+        self.conn = conn
+        self.table_name = "LoggingInfo"
+
+    def createTable(self):
+        """Create options table if it doesn't exist"""
+        self.cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                id SERIAL PRIMARY KEY,
+                batch_id UUID,
+                started_at TIMESTAMP DEFAULT NOW(),
+                ended_at TIMESTAMP DEFAULT NOW(),
+                status VARCHAR(10),
+                total_records_processed INTEGER,
+                records_inserted INTEGER,
+                records_skipped INTEGER,
+                pricing_records_inserted INTEGER,
+                options_records_inserted INTEGER,
+                error_count INTEGER,
+                execution_time_seconds DECIMAL,
+                db_operation_time_seconds DECIMAL,
+                api_call_time_seconds DECIMAL,
+                tickers_with_pricing INTEGER,
+                tickers_with_options INTEGER,
+                exit_code INTEGER,
+                duplicated_trades INTEGER,
+                time_to_fetch_trades DECIMAL,
+                time_to_fetch_price DECIMAL,
+                time_to_fetch_options DECIMAL,
+                log_timestamp TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        print(f"Table {self.table_name} created successfully")
+
+        
+    def log_batch(self, batch_id, metrics: BatchMetrics):
+        """Log batch execution metrics to database"""
+        if not isinstance(metrics, BatchMetrics):
+            raise TypeError(f"metrics must be BatchMetrics, got {type(metrics)}")
+        self.cursor.execute(f"""
+            INSERT INTO {self.table_name}
+            (batch_id, started_at, ended_at, status, total_records_processed, records_inserted, records_skipped,
+            pricing_records_inserted, options_records_inserted, error_count, execution_time_seconds,
+            db_operation_time_seconds, api_call_time_seconds, tickers_with_pricing, tickers_with_options, exit_code,
+            duplicated_trades, time_to_fetch_trades, time_to_fetch_price, time_to_fetch_options, log_timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (batch_id, metrics.started_at, metrics.ended_at, metrics.status, metrics.total_records_processed,
+              metrics.records_inserted, metrics.records_skipped, metrics.pricing_records_inserted,
+              metrics.options_records_inserted, metrics.error_count, metrics.execution_time_seconds,
+              metrics.db_operation_time_seconds, metrics.api_call_time_seconds, metrics.tickers_with_pricing,
+              metrics.tickers_with_options, metrics.exit_code, metrics.duplicated_trades,
+              metrics.time_to_fetch_trades, metrics.time_to_fetch_price, metrics.time_to_fetch_options,
+              metrics.log_timestamp))
+        print(f"Data processed for {metrics.status} (hash: {batch_id[:8]}...)")
+        
+
+
 
 if __name__ == "__main__":
     print("Running main...")
