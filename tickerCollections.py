@@ -18,7 +18,13 @@ class tickerCollection:
             "limit":10,
             "apikey":os.getenv('FMP_API_KEY')
         }
-        self.politicianTransactionData = requests.get(url, params=params)
+        try:
+            self.politicianTransactionData = requests.get(url, params=params, timeout=15)
+        except requests.exceptions.Timeout:
+            raise Exception(f"Request to {url} timed out after 15 seconds")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Request to {url} failed: {str(e)}")
+
         jsonData = self.politicianTransactionData.json()
         listData = []
         for data in jsonData:

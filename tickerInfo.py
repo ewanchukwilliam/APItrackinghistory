@@ -53,13 +53,17 @@ class tickerInfo:
         start = start_dt.strftime('%Y-%m-%d')
         end=None
         try:
-            data = yf.download(self.symbol, start=start_dt, end=transaction_dt, progress=False)
+            data = yf.download(self.symbol, start=start_dt, end=transaction_dt, progress=False, timeout=15)
             # Flatten MultiIndex columns if present (yfinance returns MultiIndex for single ticker)
             if isinstance(data.columns, pd.MultiIndex):
                 data.columns = data.columns.get_level_values(0)
             self.priceData = data
             # self.priceData = self.csv_manager.download_price_data(self.symbol, start, end, None)
             # print(self.priceData)
+        except requests.exceptions.Timeout:
+            raise Exception(f"Price data request for {self.symbol} timed out after 15 seconds")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Price data request for {self.symbol} failed: {str(e)}")
         except Exception as e:
             print(f"Error for {self.symbol}: {e}")
             self.isDataValid=False
@@ -115,7 +119,13 @@ class tickerInfo:
             "from": transaction_dt.strftime('%Y-%m-%d'),           # Expiring from transaction date onwards
             "to": (transaction_dt + pd.Timedelta(days=60)).strftime('%Y-%m-%d')  # Up to 60 days after transaction
         }
-        response = requests.get(full_url, headers=headers, params=params)
+        try:
+            response = requests.get(full_url, headers=headers, params=params, timeout=15)
+        except requests.exceptions.Timeout:
+            raise Exception(f"Options request for {self.symbol} timed out after 15 seconds")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Options request for {self.symbol} failed: {str(e)}")
+
         response_data = response.json()
         try:
             df = pd.DataFrame(response_data)
